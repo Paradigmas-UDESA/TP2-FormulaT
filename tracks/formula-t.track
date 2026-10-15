@@ -1,0 +1,17 @@
+formulat-track 1
+name "Formula T"
+laps 1000
+eps 9.9999999999999998e-13
+penaltyPct 50
+seed 2026
+layout 10
+Straight 5 1000
+Hairpin 80 1000
+Sweepers 20 1000
+Chicane 7 1000
+Straight 5 1000
+Kerb 4 1000
+Hairpin 80 1000
+Sweepers 20 1000
+Chicane 7 1000
+Kerb 4 1000

@@ -1,0 +1,8 @@
+formulat-track 1
+name "Stress"
+laps 100000
+eps 9.9999999999999998e-13
+penaltyPct 50
+seed 2026
+layout 1
+Straight 1 1
