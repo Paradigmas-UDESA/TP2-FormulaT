@@ -121,7 +121,8 @@ int main(int argc, char** argv)
         };
         int lightsShown = 0;
         for (unsigned tick = 0; !tower.allDone(); ++tick) {
-            // Copy under the lock, work outside it (the console, the file).
+            // Copy, then work on the copy (the console, the file). From clase 5
+            // the copy is taken under the tower's lock.
             const auto cars = tower.snapshot();
             const auto elapsed = race.elapsed();
             writeLive(elapsed, cars);

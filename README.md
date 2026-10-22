@@ -299,7 +299,7 @@ void writeBinary(std::ostream& os, const std::vector<T>& values);   // el tamañ
 
 El primero sirve para todo lo que se puede copiar byte a byte: números, enums, duraciones,
 y structs hechos solo de eso, como `SectionResult`. No necesitan escribir nada más para
-ellos. Para que nadie le pase otra cosa, protéjanlo con un `static_assert` y
+ellos. Para que nadie le pase otra cosa, protéjanlo usando `Concepts` y
 `std::is_trivially_copyable_v<T>` (búsquenlos). El de `vector<T>` escribe cada elemento
 con *su* `writeBinary`, sea cual sea: un `vector<SectionResult>`, un `vector<CarResult>` o
 un `vector<std::vector<double>>`.
@@ -388,7 +388,119 @@ necesita los threads de la clase 4.
 
 ### Clase 4, Threads
 
-Próximamente...
+Implementen la torre de tiempos, en `src/timingtower.cpp`, y la carrera, en
+`src/race.cpp`. Las dos clases están declaradas en `include/formulat/timingtower.h` y
+`include/formulat/race.h`: la parte pública es el contrato y no la cambien; el estado (la
+parte `private:`) lo eligen ustedes. `redFlag()` y `TimingTower::stop()` son de la clase 5:
+por ahora déjenlos como están.
+
+La **torre** guarda un `CarStatus` por auto de la grilla (equipo, piloto, tramos
+completados, tiempo, estado y posición), y es lo único que los autos comparten y modifican:
+
+```cpp
+class TimingTower {
+public:
+    explicit TimingTower(const std::vector<Car>& grid);  // todos Running
+    void report(std::size_t car, std::size_t completed, std::chrono::nanoseconds total);
+    unsigned finish(std::size_t car);                     // devuelve la posición: 1, 2, ...
+    void retire(std::size_t car);
+    std::vector<CarStatus> snapshot() const;              // una copia
+    bool allDone() const;                                 // ningún auto Running
+    std::size_t sectionsRun() const;                      // cuántos report() hubo
+    ...
+};
+```
+
+Los autos se identifican por su índice en la grilla. `report` actualiza el avance del auto
+y además cuenta un tramo más en `sectionsRun()`. En esta clase, **sin locks**.
+
+La **carrera** corre cada auto en su propio `std::thread`:
+
+```cpp
+class Race {
+public:
+    Race(std::vector<Car>& grid, const Track& track, TimingTower& tower, std::ostream* log,
+         StartProcedure procedure = {});
+    void start();                            // lanza los threads y vuelve enseguida
+    void join();                             // espera a todos los autos
+    std::chrono::nanoseconds elapsed() const;  // tiempo desde que se apagó el semáforo
+    ~Race();
+    ...
+};
+```
+
+`start()` no bloquea: el thread principal queda libre para mostrar la carrera (el programa
+`race`, dado, consulta la torre una vez por segundo). Cada thread hace lo mismo que
+`runSequential` con un solo auto: `runNext` hasta que el auto termine, y después de cada
+tramo le informa a la torre. Si `runNext` tira una excepción, el auto se retira con
+`retire(e.what())`, y ese tramo también se le informa a la torre. Al terminar, `finish` o
+`retire` en la torre.
+
+La **largada**: `start()` fija el apagado del semáforo `5 × lightInterval` en el futuro (se
+prende una luz por intervalo), y el auto `i` sale `i × gap` después del apagado. Mientras el
+semáforo está prendido, `elapsed()` es negativo. `start()` no espera: espera cada thread,
+con `std::this_thread::sleep_until`. Casi todos los tests usan `{0, 0}` (todos a la vez); `race`, un
+segundo por luz y 50 ms entre autos.
+
+El **log**: si `log` no es `nullptr`, cada auto escribe una línea cada 10% de las vueltas
+y otra al terminar o abandonar, con el tiempo desde el apagado:
+
+```
+[   3.208114] Secant Warm  lap 100
+[  27.950372] Newton Cold  retired: referee: residual above 2 eps
+[  31.004519] Secant Warm  finished P1
+```
+
+El formato exacto no lo controlan los tests. En esta clase el log también va sin lock.
+
+El destructor de `Race` espera a los threads que sigan corriendo: destruir un
+`std::thread` que todavía es *joinable* llama a `std::terminate`. Y un destructor nunca
+debe tirar excepciones.
+
+Con la carrera andando, `make race` corre una carrera entera, y con `make gui` la ven en
+vivo. El botón de bandera roja todavía no anda (es de la clase 5): si lo aprietan, los
+autos siguen hasta el final y `race` termina con `error: sin implementar`, sin
+clasificación. Ahora prueben
+`make race ARGS=tracks/stress.track`: un circuito de un tramo diminuto con 100.000
+vueltas, donde cada auto le informa a la torre cada microsegundo. Miren la última línea:
+cuántos tramos contó la torre y cuántos corrieron los autos. Córranlo varias veces. Después
+prueben `make tsan`, la misma carrera compilada con ThreadSanitizer. Lo que ven es lo que
+arreglan en la clase 5.
+
+> **Tip:** un `std::thread` puede correr una función miembro:
+> `std::thread(&Race::drive, this, i)` corre `this->drive(i)` en el thread nuevo. Guarden
+> los threads en un `std::vector<std::thread>`.
+
+> **Tip (2):** para el nombre del auto, `write(os, car.team())` (de
+> `include/formulat/serialize.h`) escribe el nombre del equipo, y lo mismo con el piloto.
+> Para el tiempo, armen la línea aparte en un `std::ostringstream` y escríbanla entera con
+> `log->write`:
+>
+> ```cpp
+> os << '[' << std::fixed << std::setprecision(6) << std::setw(11) << segundos << "] "
+>    << linea << '\n';
+> ```
+>
+> `setw` y `fixed` cambian el estado del stream. Si los usan directo sobre `std::cout`, que
+> el thread principal también usa, eso ya es un data race.
+
+> **Para pensar:** cada thread guarda una referencia a su auto de la grilla. ¿Por qué la
+> grilla tiene que estar completa **antes** de `start()`? ¿Qué le pasa a esa referencia si
+> después alguien hace `push_back` en el vector?
+
+> **Para pensar (2):** los autos comparten la pista, el instante de largada y la torre.
+> ¿Por qué la pista y la largada se pueden leer desde todos los threads sin problema, y la
+> torre no? ¿Y cada `Car`?
+
+> **Para pensar (3):** `sleep_until` hace que los autos salgan en orden de grilla. ¿Lo
+> garantiza? En el circuito normal, ¿la torre pierde tramos? ¿Que no pierda ninguno en su
+> máquina quiere decir que está bien?
+
+Tests: `make test-clase4`, y que `make test-clase3` siga pasando.
+
+<!-- PENDING: the "### Clase 5" section (what to implement, files, "Para
+     pensar", tests), written after it is reviewed. Then: Al terminar, Qué se
+     puede tocar y qué no. -->
 
 ### Clase 5, Sincronización
 
@@ -481,3 +593,7 @@ apretar F5):
 - `tracks/`: el archivo de la pista
 - `gui/`: la interfaz gráfica; no es parte del TP
 - `tests/`: los tests con los que se corrige, uno por clase
+
+## Licencia
+
+Este proyecto se distribuye bajo la licencia GNU GPL v3: ver [`LICENSE`](LICENSE).
