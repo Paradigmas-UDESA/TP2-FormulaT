@@ -57,6 +57,9 @@ std::string carName(const CarStatus& s)
 // gui/app.js reads CarStatus as raw bytes: this layout is its contract.
 static_assert(sizeof(CarStatus) == 32, "CarStatus layout changed: update gui/app.js");
 
+// Every car leaves at lights out; each grid slot costs this much race time.
+const auto kGridGap = std::chrono::milliseconds(500);
+
 const char* const kLive = "results/live.bin";
 const char* const kLiveTmp = "results/live.bin.tmp";
 const char* const kRequest = "results/red-flag.request";
@@ -103,12 +106,19 @@ int main(int argc, char** argv)
                   << " cores for 12 cars\n\n";
 
         // Complete BEFORE the threads start.
-        std::vector<Car> grid = resume.empty() ? makeGrid(track) : makeGrid(track, loadRedFlag(resume));
+        // After a red flag, the cars that finished under it are out of the race:
+        // they lead the classification, in the saved order.
+        const std::vector<GridSlot> saved = resume.empty() ? std::vector<GridSlot>{} : loadRedFlag(resume);
+        std::vector<GridSlot> finishedBefore;
+        for (const GridSlot& s : saved)
+            if (s.laps == track.config.laps)
+                finishedBefore.push_back(s);
+        std::vector<Car> grid = resume.empty() ? makeGrid(track, kGridGap) : makeGrid(track, saved);
         if (!resume.empty())
             std::cout << "restart from " << resume << " (race times start again at 0)\n";
         TimingTower tower(grid);
-        const StartProcedure procedure{1s, 50ms};
-        Race race(grid, track, tower, &std::cout, procedure);
+        const auto lightInterval = 1s;
+        Race race(grid, track, tower, &std::cout, lightInterval);
         race.start();
 
         const std::size_t perLap = track.sections.size();
@@ -130,7 +140,7 @@ int main(int argc, char** argv)
             if (elapsed < 0ns) {
                 // One more light every interval, all out at 0.
                 const double e = std::chrono::duration<double>(elapsed).count() /
-                                 std::chrono::duration<double>(procedure.lightInterval).count();
+                                 std::chrono::duration<double>(lightInterval).count();
                 const int lights = std::clamp(6 + static_cast<int>(std::floor(e)), 1, 5);
                 if (lights != lightsShown) {
                     lightsShown = lights;
@@ -172,7 +182,10 @@ int main(int argc, char** argv)
             std::printf("\nrestart grid (saved results/red-flag.bin):\n");
             for (std::size_t i = 0; i < order.size(); ++i) {
                 const std::string name = nameOf(order[i].team) + " " + nameOf(order[i].driver);
-                std::printf("%-4zu %-24s lap %zu\n", i + 1, name.c_str(), order[i].laps);
+                if (order[i].laps == track.config.laps)
+                    std::printf("%-4zu %-24s finished\n", i + 1, name.c_str());
+                else
+                    std::printf("%-4zu %-24s lap %zu\n", i + 1, name.c_str(), order[i].laps);
             }
             return 0;
         }
@@ -189,9 +202,10 @@ int main(int argc, char** argv)
                     return s.position;
             return 0;
         };
+        // Overall: after a restart, behind the cars that finished under the flag.
         auto crossed = [&](const CarResult& r) {
             const unsigned p = position(r);
-            return p ? std::to_string(p) : std::string("-");
+            return p ? std::to_string(finishedBefore.size() + p) : std::string("-");
         };
         std::vector<CarResult> order = classify(results);
         if (!resume.empty()) {
@@ -204,6 +218,11 @@ int main(int argc, char** argv)
         std::printf("\n%-4s %-24s %12s %8s\n", "pos", "car",
                     resume.empty() ? "time (s)" : "since restart", "crossed");
         std::size_t pos = 0;
+        for (const GridSlot& s : finishedBefore) {
+            const std::string name = nameOf(s.team) + " " + nameOf(s.driver);
+            ++pos;
+            std::printf("%-4zu %-24s %12s %8zu\n", pos, name.c_str(), "-", pos);
+        }
         for (const CarResult& r : order) {
             const std::string name = nameOf(r.team) + " " + nameOf(r.driver);
             const std::string p = r.finished ? std::to_string(++pos) : "DNF";

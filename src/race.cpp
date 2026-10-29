@@ -5,13 +5,13 @@
 namespace formulat {
 
 Race::Race(std::vector<Car>& grid, const Track& track, TimingTower& tower, std::ostream* log,
-           StartProcedure procedure)
+           std::chrono::nanoseconds lightInterval)
 {
     (void)grid;
     (void)track;
     (void)tower;
     (void)log;
-    (void)procedure;
+    (void)lightInterval;
     throw std::logic_error("sin implementar");
 }
 

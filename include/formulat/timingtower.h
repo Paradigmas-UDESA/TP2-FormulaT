@@ -29,7 +29,8 @@ struct CarStatus {
 // identifican por su índice en la grilla.
 class TimingTower {
 public:
-    // Un estado Running por cada auto de la grilla.
+    // Un estado Running por cada auto de la grilla, con lo que el auto ya
+    // lleva (completed y el tiempo de result()).
     explicit TimingTower(const std::vector<Car>& grid);
 
     // Después de cada sección: el progreso del auto. También cuenta la sección.

@@ -146,7 +146,8 @@ corre, imprime la tabla y guarda los resultados en `results/`: una planilla para
 ### La carrera
 
 En la carrera corren los doce autos **a la vez, cada uno en su propio thread**, todas las
-vueltas. Se prende el semáforo y, cuando se apaga, los autos salen en orden de grilla.
+vueltas. Se prende el semáforo y, cuando se apaga, salen todos juntos; cada puesto de la
+grilla arranca con un poco de tiempo en contra, la distancia hasta la primera fila.
 Cada auto informa su avance a una **torre de tiempos** compartida, que el programa
 principal consulta para mostrar la carrera en vivo. Con la **bandera roja** la carrera
 se detiene: cada auto para al terminar su vuelta, se guarda el orden en que iban, y otra
@@ -345,7 +346,8 @@ Cada `Car` tiene su motor y su propio fallback, su cola, y lo que lleva corrido:
 ```cpp
 class Car {
 public:
-    Car(Team team, Driver driver, const Track& track, std::size_t completed = 0);
+    Car(Team team, Driver driver, const Track& track, std::size_t completed = 0,
+        std::chrono::nanoseconds start = {});
 
     bool done() const;                 // terminó todos los tramos, o abandonó
     std::size_t completed() const;     // tramos completados
@@ -360,7 +362,8 @@ public:
 
 `runNext` saca el próximo índice de la cola, corre ese tramo con `runSection` y suma el
 resultado: lo agrega a `result().sections`, suma el tiempo, las entradas a boxes y las
-penalizaciones. Si el árbitro le da DNF, el auto abandona: llamen a `retireAt` con el
+penalizaciones. El tiempo arranca en `start`: lo que el auto ya lleva antes del primer
+tramo. Si el árbitro le da DNF, el auto abandona: llamen a `retireAt` con el
 residuo y el motivo (`refereeVerdict`). El tramo del DNF queda en `result().sections`,
 pero no cuenta en `completed()`.
 
@@ -368,8 +371,10 @@ Las excepciones de los motores **no** se atrapan en `runNext`: se propagan, y qu
 el auto lo retira con `retire(e.what())`. El ADR registra el último tramo que tomó
 `runNext`, el que tiró la excepción. Retirar un auto dos veces no hace nada.
 
-`makeGrid` arma la grilla: un `std::vector<Car>` con los 12 autos, en el orden de `Team`, y
-dentro de cada equipo primero `Cold` y después `Warm`.
+`makeGrid(track, gap)` arma la grilla: un `std::vector<Car>` con los 12 autos, en el orden
+de `Team`, y dentro de cada equipo primero `Cold` y después `Warm`. Como en la Fórmula 1,
+todos largan a la vez, pero el de atrás está más lejos de la meta: el auto `i` arranca con
+`i × gap` de tiempo de carrera. `gap` vale 0 si no se pasa (todos en la primera fila).
 
 `runSequential` (dado, en `src/sequential.cpp`) corre la carrera entera sin threads: cada
 auto hasta el final, uno después del otro. En la clase 4 van a correr el mismo ciclo, con un
@@ -400,7 +405,7 @@ completados, tiempo, estado y posición), y es lo único que los autos comparten
 ```cpp
 class TimingTower {
 public:
-    explicit TimingTower(const std::vector<Car>& grid);  // todos Running
+    explicit TimingTower(const std::vector<Car>& grid);  // todos Running, con su tiempo
     void report(std::size_t car, std::size_t completed, std::chrono::nanoseconds total);
     unsigned finish(std::size_t car);                     // devuelve la posición: 1, 2, ...
     void retire(std::size_t car);
@@ -420,7 +425,7 @@ La **carrera** corre cada auto en su propio `std::thread`:
 class Race {
 public:
     Race(std::vector<Car>& grid, const Track& track, TimingTower& tower, std::ostream* log,
-         StartProcedure procedure = {});
+         std::chrono::nanoseconds lightInterval = {});
     void start();                            // lanza los threads y vuelve enseguida
     void join();                             // espera a todos los autos
     std::chrono::nanoseconds elapsed() const;  // tiempo desde que se apagó el semáforo
@@ -437,10 +442,11 @@ tramo le informa a la torre. Si `runNext` tira una excepción, el auto se retira
 `retire` en la torre.
 
 La **largada**: `start()` fija el apagado del semáforo `5 × lightInterval` en el futuro (se
-prende una luz por intervalo), y el auto `i` sale `i × gap` después del apagado. Mientras el
-semáforo está prendido, `elapsed()` es negativo. `start()` no espera: espera cada thread,
-con `std::this_thread::sleep_until`. Casi todos los tests usan `{0, 0}` (todos a la vez); `race`, un
-segundo por luz y 50 ms entre autos.
+prende una luz por intervalo), y todos los autos salen al apagado. Mientras el semáforo está
+prendido, `elapsed()` es negativo. `start()` no espera: espera cada thread, con
+`std::this_thread::sleep_until`. Casi todos los tests usan 0 (salen enseguida); `race`, un
+segundo por luz. El puesto en la grilla no es una espera: ya está en el tiempo de cada auto
+(`makeGrid`, clase 3). La torre arranca cada auto con ese tiempo, el de su `result()`.
 
 El **log**: si `log` no es `nullptr`, cada auto escribe una línea cada 10% de las vueltas
 y otra al terminar o abandonar, con el tiempo desde el apagado:
@@ -492,19 +498,98 @@ arreglan en la clase 5.
 > ¿Por qué la pista y la largada se pueden leer desde todos los threads sin problema, y la
 > torre no? ¿Y cada `Car`?
 
-> **Para pensar (3):** `sleep_until` hace que los autos salgan en orden de grilla. ¿Lo
-> garantiza? En el circuito normal, ¿la torre pierde tramos? ¿Que no pierda ninguno en su
+> **Para pensar (3):** todos los threads esperan el mismo instante con `sleep_until`. ¿Arrancan
+> todos a la vez? ¿Y en el mismo orden en cada carrera? En el circuito normal, ¿la torre pierde tramos? ¿Que no pierda ninguno en su
 > máquina quiere decir que está bien?
 
 Tests: `make test-clase4`, y que `make test-clase3` siga pasando.
 
-<!-- PENDING: the "### Clase 5" section (what to implement, files, "Para
-     pensar", tests), written after it is reviewed. Then: Al terminar, Qué se
-     puede tocar y qué no. -->
-
 ### Clase 5, Sincronización
 
-Próximamente...
+Protejan la torre de tiempos (`src/timingtower.cpp`) y el log de la carrera
+(`src/race.cpp`) con un `std::mutex`, implementen la bandera roja (`Race::redFlag()` y
+`TimingTower::stop()`), y el relanzamiento después de la bandera, en `src/redflag.cpp`. Los
+mutex y lo que necesiten para la bandera van en la parte `private:` de cada clase;
+`include/formulat/redflag.h` está dado y sus firmas son el contrato.
+
+La **torre**: cada función, salvo el constructor, hace todo su trabajo con el lock tomado,
+con `std::lock_guard`:
+
+```cpp
+void TimingTower::retire(std::size_t car)
+{
+    std::lock_guard<std::mutex> lock(mutex_);  // se libera al salir de la función
+    ...
+}
+```
+
+`snapshot()` y `allDone()` son `const` y también lo toman: declaren el mutex `mutable`. La
+torre tiene un estado nuevo, `Stopped`, para los autos que paró la bandera: `stop(car)` lo
+pone, y para `allDone()` cuenta como terminado.
+
+El **log**: un segundo mutex, solo para escribir. Cada línea se escribe entera con el lock
+tomado, así dos autos no mezclan las suyas.
+
+La **bandera roja**: `redFlag()` la levanta (la llama el thread principal) y devuelve
+`true`, salvo que algún auto ya haya terminado: entonces la carrera ya tiene ganador, y la
+rechaza (`false`). Cada auto mira la bandera **al final de cada vuelta**: si está
+levantada, se detiene (en la torre, `stop`). Un auto que termina su última vuelta, en
+cambio, lo anota (desde ahí `redFlag()` se rechaza) y termina, haya bandera o no. Lo que
+lee el thread principal y lo que escriben los autos va bajo un mismo mutex.
+
+El **relanzamiento**, después del `join()`, cuando ya no corre ningún thread:
+
+```cpp
+struct GridSlot {
+    Team team;
+    Driver driver;
+    std::size_t laps;
+};
+```
+
+- `redFlagOrder(grid, track)`: los autos que no abandonaron, primero los de más vueltas y,
+  con las mismas vueltas, los de menos tiempo de carrera.
+- `saveRedFlag(path, order)` y `loadRedFlag(path)`: `"FTRF"`, la versión (un `uint32_t`, 1)
+  y los lugares, con los templates de la clase 2. Cargar tira `std::runtime_error` si el
+  archivo no se puede abrir, si es de otro tipo o de otra versión.
+- `makeGrid(track, order)`: la grilla de relanzamiento, en ese orden, cada auto retomando
+  después de sus vueltas, con el tiempo de nuevo en 0. Un auto que terminó su última vuelta
+  con la bandera ya está fuera de la carrera: no se relanza.
+
+Prueben `make race ARGS="--red-flag 5"`: 5 segundos después del apagado, el programa levanta la bandera,
+espera a que paren todos, guarda `results/red-flag.bin` y muestra la grilla de
+relanzamiento. Después, `make race ARGS="--resume results/red-flag.bin"` relanza la carrera
+desde ahí. Con `make gui`, el botón de bandera roja ahora anda. Y vuelvan a la prueba de la
+clase 4: `make race ARGS=tracks/stress.track` ya no pierde tramos, y `make tsan` termina
+sin reportes.
+
+> **Tip:** las secciones críticas, lo más chicas posible. Un auto nunca corre un tramo con
+> un lock tomado: los otros once lo esperarían. Por lo mismo, `snapshot()` devuelve una
+> copia: quien la pide trabaja sobre la copia (la muestra, la escribe en un archivo) sin
+> tener la torre bloqueada.
+
+> **Tip (2):** `GridSlot` no necesita código propio para guardarse: el `writeBinary`
+> genérico de la clase 2 alcanza. Para leer los autos después del `join()` no hace falta
+> ningún lock.
+
+> **Para pensar:** `finish()` suma uno a los que terminaron y le da esa posición al auto.
+> ¿Qué podría pasar si sumar y leer la posición quedaran en dos secciones críticas
+> distintas?
+
+> **Para pensar (2):** ¿por qué cada auto mira la bandera recién al final de una vuelta, y
+> no después de cada tramo? Un auto que está en su última vuelta cuando sale la bandera,
+> ¿qué hace?
+
+> **Para pensar (3):** para la bandera alcanza un `bool` compartido protegido por un mutex.
+> ¿Qué es `std::atomic<bool>`, y por qué serviría acá?
+
+> **Para pensar (4):** si la torre toma el lock solo en `report()`, no se pierde ningún
+> tramo y los tests pasan. ¿Está bien? ¿Qué ve ThreadSanitizer que los tests no ven?
+
+Tests: `make test-clase5` (los corre dos veces: normal y con ThreadSanitizer), y que
+`make test-clase4` siga pasando.
+
+<!-- PENDING: Al terminar, Qué se puede tocar y qué no. -->
 
 ## Cómo se corrige
 
@@ -519,7 +604,9 @@ make test-clase5      # sincronización
 ```
 
 Se corrige corriendo esos mismos tests: una clase está bien resuelta cuando pasan todos
-sus tests.
+sus tests. En la clase 5, `make test-clase5` los corre dos veces: compilados normalmente y
+con ThreadSanitizer. Si ThreadSanitizer reporta un data race, la clase 5 no está resuelta,
+aunque los tests pasen.
 
 ## Nota
 

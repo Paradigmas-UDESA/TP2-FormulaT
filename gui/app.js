@@ -32,7 +32,7 @@ const TYPE_COLORS = {
 // What the page shows for each state. Car names (team + driver) and section types
 // stay as the C++ names, as the console, the track file and the ADR files have them.
 const STATE_LABELS = { Running: "en pista", Finished: "terminó", Retired: "abandonó", Stopped: "detenido" };
-const LIGHT_INTERVAL_S = 1;  // build/race's StartProcedure
+const LIGHT_INTERVAL_S = 1;  // build/race's lightInterval
 const REPLAY_SECONDS = 20;   // the slowest qualifying lap lasts this long at x1
 
 const canvas = document.getElementById("track");

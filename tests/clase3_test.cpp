@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <queue>
@@ -15,6 +16,7 @@
 #include "formulat/sequential.h"
 
 using namespace formulat;
+using namespace std::chrono_literals;
 
 namespace {
 
@@ -78,7 +80,26 @@ TEST(GridTest, TwelveCarsInTeamThenDriverOrder)
         EXPECT_EQ(grid[i].driver(), i % 2 == 0 ? Driver::Cold : Driver::Warm);
         EXPECT_FALSE(grid[i].done());
         EXPECT_EQ(grid[i].completed(), 0u);
+        EXPECT_EQ(grid[i].result().total, 0ns);  // no gap: everyone on the front row
     }
+}
+
+// Every car leaves at lights out: the grid slot is race time on the clock,
+// and the sections add up on top of it.
+TEST(GridTest, EachSlotStartsOneGapBehind)
+{
+    const Track t = smallTrack(1, 3);
+    auto grid = makeGrid(t, 1s);
+    for (std::size_t i = 0; i < grid.size(); ++i)
+        EXPECT_EQ(grid[i].result().total, std::chrono::seconds(i));
+
+    Car& car = grid[3];
+    while (!car.done())
+        car.runNext(t);
+    std::chrono::nanoseconds sections{0};
+    for (const SectionResult& r : car.result().sections)
+        sections += r.time;
+    EXPECT_EQ(car.result().total, 3s + sections);
 }
 
 // --- Car -------------------------------------------------------------------------

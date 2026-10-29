@@ -3,6 +3,9 @@
 #include <stdexcept>
 
 // TODO (clase 5): stop(), y proteger todo con un std::mutex.
+// - finish() suma uno a los que terminaron y le da esa posición al auto. ¿Qué
+//   podría pasar si sumar y leer la posición quedaran en dos secciones
+//   críticas distintas?
 
 namespace formulat {
 

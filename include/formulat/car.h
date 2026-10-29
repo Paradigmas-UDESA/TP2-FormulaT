@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -24,8 +25,10 @@ std::queue<std::size_t> makeQueue(const Track& track, std::size_t completed = 0)
 class Car {
 public:
     // Arranca después de `completed` secciones (0: desde la grilla; más:
-    // retomando una carrera).
-    Car(Team team, Driver driver, const Track& track, std::size_t completed = 0);
+    // retomando una carrera), con `start` de tiempo de carrera ya en el reloj
+    // (el de su puesto en la grilla).
+    Car(Team team, Driver driver, const Track& track, std::size_t completed = 0,
+        std::chrono::nanoseconds start = {});
 
     Team team() const;
     Driver driver() const;
@@ -72,7 +75,9 @@ private:
 };
 
 // Todos los equipos con sus dos pilotos: 12 autos, en el orden de Team, y
-// dentro de cada equipo primero Cold y después Warm.
-std::vector<Car> makeGrid(const Track& track);
+// dentro de cada equipo primero Cold y después Warm. Todos salen al apagado
+// del semáforo; el auto i arranca con i x gap de tiempo de carrera, lo que le
+// cuesta su puesto en la grilla.
+std::vector<Car> makeGrid(const Track& track, std::chrono::nanoseconds gap = {});
 
 }  // namespace formulat

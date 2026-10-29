@@ -37,7 +37,7 @@ struct GridSlot {
 };
 
 // Los autos que no abandonaron: primero más vueltas, después menos tiempo de
-// carrera. Si empatan en las dos cosas, en el orden de la grilla.
+// carrera.
 std::vector<GridSlot> redFlagOrder(const std::vector<Car>& grid, const Track& track);
 
 // "FTRF", una versión de 32 bits (1), los lugares. Cargar tira
@@ -47,7 +47,8 @@ void saveRedFlag(const std::string& path, const std::vector<GridSlot>& order);
 std::vector<GridSlot> loadRedFlag(const std::string& path);
 
 // La grilla de relanzamiento: los autos en ese orden, cada uno retomando
-// después de sus vueltas.
+// después de sus vueltas. Un auto que terminó su última vuelta con la bandera
+// ya está fuera de la carrera: no se relanza.
 std::vector<Car> makeGrid(const Track& track, const std::vector<GridSlot>& order);
 
 }  // namespace formulat

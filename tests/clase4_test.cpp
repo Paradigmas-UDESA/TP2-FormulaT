@@ -60,7 +60,7 @@ void runRace(std::vector<Car>& grid, const Track& track, TimingTower& tower)
 TEST(TowerTest, StartsWithEveryCarRunning)
 {
     const Track t = twoLaps();
-    const auto grid = makeGrid(t);
+    const auto grid = makeGrid(t, 50ms);
     TimingTower tower(grid);
     const auto s = tower.snapshot();
     ASSERT_EQ(s.size(), grid.size());
@@ -68,6 +68,7 @@ TEST(TowerTest, StartsWithEveryCarRunning)
         EXPECT_EQ(s[i].team, grid[i].team());
         EXPECT_EQ(s[i].driver, grid[i].driver());
         EXPECT_EQ(s[i].completed, 0u);
+        EXPECT_EQ(s[i].total, std::chrono::milliseconds(50 * i));  // its grid slot
         EXPECT_EQ(s[i].state, CarStatus::State::Running);
         EXPECT_EQ(s[i].position, 0u);
     }
@@ -214,7 +215,7 @@ TEST(LightsTest, NothingMovesBeforeLightsOut)
     const Track t = stress(10);
     auto grid = makeGrid(t);
     TimingTower tower(grid);
-    Race r(grid, t, tower, nullptr, {50ms, 10ms});  // lights out 250 ms after start()
+    Race r(grid, t, tower, nullptr, 50ms);  // lights out 250 ms after start()
     r.start();                                      // doesn't wait for the lights
     std::this_thread::sleep_for(100ms);
     EXPECT_LT(r.elapsed(), 0ns);
@@ -222,19 +223,4 @@ TEST(LightsTest, NothingMovesBeforeLightsOut)
     r.join();
     EXPECT_GE(r.elapsed(), 0ns);
     EXPECT_TRUE(tower.allDone());
-}
-
-// One microsecond-long lap: each car finishes long before the next one
-// leaves, so they cross the line in grid order.
-TEST(LightsTest, CarsLeaveInGridOrder)
-{
-    const Track t = stress(1);
-    auto grid = makeGrid(t);
-    TimingTower tower(grid);
-    Race r(grid, t, tower, nullptr, {0ns, 20ms});
-    r.start();
-    r.join();
-    const auto s = tower.snapshot();
-    for (std::size_t i = 0; i < s.size(); ++i)
-        EXPECT_EQ(s[i].position, i + 1);
 }

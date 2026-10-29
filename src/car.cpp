@@ -11,12 +11,14 @@ std::queue<std::size_t> makeQueue(const Track& track, std::size_t completed)
     throw std::logic_error("sin implementar");
 }
 
-Car::Car(Team team, Driver driver, const Track& track, std::size_t completed)
+Car::Car(Team team, Driver driver, const Track& track, std::size_t completed,
+         std::chrono::nanoseconds start)
 {
     (void)team;
     (void)driver;
     (void)track;
     (void)completed;
+    (void)start;
     throw std::logic_error("sin implementar");
 }
 
@@ -62,9 +64,10 @@ const std::optional<AccidentDataRecorder>& Car::adr() const
     throw std::logic_error("sin implementar");
 }
 
-std::vector<Car> makeGrid(const Track& track)
+std::vector<Car> makeGrid(const Track& track, std::chrono::nanoseconds gap)
 {
     (void)track;
+    (void)gap;
     throw std::logic_error("sin implementar");
 }
 
