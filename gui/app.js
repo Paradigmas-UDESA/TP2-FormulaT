@@ -25,13 +25,13 @@
 const TEAMS = ["Bisection", "Toms748", "Newton", "Halley", "Secant", "RegulaFalsi"];
 const DRIVERS = ["Cold", "Warm"];
 const STATES = ["Running", "Finished", "Retired", "Stopped"];
-const TEAM_COLORS = ["#f5c518", "#00a19b", "#e10600", "#3671c6", "#ff8000", "#b6babd"];
+// 2026 F1 team colours (formula1.com/en/teams): Aston Martin, Mercedes, Ferrari, Red Bull, McLaren, Cadillac.
+const TEAM_COLORS = ["#229971", "#27f4d2", "#e8002d", "#3671c6", "#ff8000", "#aaaaad"];
 const TYPE_COLORS = {
-  Straight: "#6b7280", Hairpin: "#c2410c", Sweepers: "#0e7490", Chicane: "#a21caf", Kerb: "#65a30d",
+  Straight: "#3aa8dc", Hairpin: "#e8312a", Sweepers: "#f5c400", Chicane: "#e43be4", Kerb: "#57c13c",
 };
-// What the page shows for each state. Car names (team + driver) and section types
-// stay as the C++ names, as the console, the track file and the ADR files have them.
-const STATE_LABELS = { Running: "en pista", Finished: "terminó", Retired: "abandonó", Stopped: "detenido" };
+// Car names (team + driver) and section types stay as the C++ names, as the console,
+// the track file and the ADR files have them.
 const LIGHT_INTERVAL_S = 1;  // build/race's lightInterval
 const REPLAY_SECONDS = 20;   // the slowest qualifying lap lasts this long at x1
 
@@ -109,6 +109,7 @@ function parseLive(buffer) {
 // The circuit: a stadium (two straights, two half circles). pointAt(t), t in [0, 1).
 const W = canvas.width, H = canvas.height, R = 190, STRAIGHT = W - 2 * R - 140;
 const CX = W / 2, CY = H / 2 + 20;
+const TRACK_WIDTH = 44;  // the cars' lanes (-14 to 14) and their size (6) fit inside
 const PERIMETER = 2 * STRAIGHT + 2 * Math.PI * R;
 
 function pointAt(t, lane = 0) {
@@ -124,59 +125,123 @@ function pointAt(t, lane = 0) {
   return [CX - STRAIGHT / 2 + r * Math.cos(a), CY + r * Math.sin(a)];
 }
 
+// A line along the circuit, from t0 to t1, in a lane (0 is the middle; < 0 is inside).
+function strokeAlong(t0, t1, lane, color, width) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.beginPath();
+  const steps = Math.ceil((t1 - t0) * 400);
+  for (let s = 0; s <= steps; ++s) {
+    const [x, y] = pointAt(t0 + ((t1 - t0) * s) / steps, lane);
+    s ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.stroke();
+}
+
 function drawCircuit(track, title) {
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = "#e8e8e8";
-  ctx.font = "bold 20px system-ui";
+  ctx.fillStyle = "#15151e";
+  ctx.font = '20px "Russo One", system-ui';
   ctx.fillText(title, 20, 34);
   const n = track.sections.length;
-  ctx.lineWidth = 34;
+  // Like F1's circuit maps: a dark track, each section's type as a colored line along
+  // the middle, and the labels as dark pills.
   ctx.lineCap = "butt";
-  for (let i = 0; i < n; ++i) {
-    ctx.strokeStyle = TYPE_COLORS[track.sections[i]] || "#555";
-    ctx.beginPath();
-    for (let s = 0; s <= 40; ++s) {
-      const [x, y] = pointAt((i + s / 40) / n);
-      s ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-    }
-    ctx.stroke();
-  }
-  // Section labels, and the start/finish line.
-  ctx.font = "12px system-ui";
-  ctx.fillStyle = "#e8e8e8";
+  strokeAlong(0, 1, 0, "#15151e", TRACK_WIDTH);
+  for (let i = 0; i < n; ++i)
+    strokeAlong(i / n, (i + 1) / n, 0, TYPE_COLORS[track.sections[i]] || "#888", 4);
+  ctx.font = '13px "Titillium Web", system-ui';
   ctx.textAlign = "center";
   for (let i = 0; i < n; ++i) {
-    const [x, y] = pointAt((i + 0.5) / n, -40);
-    ctx.fillText(track.sections[i], x, y + 4);
+    const type = track.sections[i];
+    const w = ctx.measureText(type).width + 30, h = 22;  // the dot, the text, padding
+    // Inside the circuit, far enough that the pill never touches the track: half the
+    // track, a gap, and half the pill measured across the track (it depends on the angle).
+    const t = (i + 0.5) / n;
+    const [mx, my] = pointAt(t), [ix, iy] = pointAt(t, -1);
+    const [nx, ny] = [ix - mx, iy - my];
+    const lane = -(TRACK_WIDTH / 2 + 12 + (Math.abs(nx) * w + Math.abs(ny) * h) / 2);
+    const [x, y] = pointAt(t, lane);
+    ctx.fillStyle = "#15151e";
+    ctx.beginPath();
+    ctx.roundRect(x - w / 2, y - h / 2, w, h, h / 2);
+    ctx.fill();
+    // White text, and the type's color as a dot: some colors are hard to read as text.
+    ctx.fillStyle = TYPE_COLORS[type] || "#888";
+    ctx.beginPath();
+    ctx.arc(x - w / 2 + 12, y, 4, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.fillText(type, x + 7, y + 4);
   }
   ctx.textAlign = "left";
-  const [x0, y0] = pointAt(0, -17), [x1, y1] = pointAt(0, 17);
-  ctx.strokeStyle = "#fff";
-  ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  // The start/finish line: checkered, two rows of squares across the track, a bit wider
+  // than it. Drawn turned with the track, so it is across it wherever t = 0 falls.
+  const SQUARE = 6, ACROSS = 8;  // 8 squares of 6 px: 48 px, the track is 44
+  const [sx, sy] = pointAt(0), [ax, ay] = pointAt(0.001);
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.rotate(Math.atan2(ay - sy, ax - sx));
+  for (let row = 0; row < 2; ++row)
+    for (let k = 0; k < ACROSS; ++k) {
+      ctx.fillStyle = (row + k) % 2 ? "#15151e" : "#fff";
+      ctx.fillRect((row - 1) * SQUARE, (k - ACROSS / 2) * SQUARE, SQUARE, SQUARE);
+    }
+  ctx.strokeStyle = "#15151e";  // an outline, so the white squares show on the light panel
+  ctx.lineWidth = 1;
+  ctx.strokeRect(-SQUARE, (-ACROSS / 2) * SQUARE, 2 * SQUARE, ACROSS * SQUARE);
+  ctx.restore();
 }
 
 function carIndex(car) { return TEAMS.indexOf(car.team) * 2 + DRIVERS.indexOf(car.driver); }
 
-// A car: its team's color, filled for Cold, a ring for Warm. Each car has its
-// own lane so they don't hide each other.
-function drawCar(car, t, crashed) {
-  const i = carIndex(car);
-  const [x, y] = pointAt(t, -14 + (i * 28) / 11);
+// Each car has its own lane on the track, so they don't hide each other.
+function laneOf(car) { return -14 + (carIndex(car) * 28) / 11; }
+
+// A car: its team's color, filled for Cold, a ring for Warm.
+function drawCarAt(car, x, y) {
   const color = TEAM_COLORS[TEAMS.indexOf(car.team)];
   ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.arc(x, y, 6, 0, 2 * Math.PI);
   if (car.driver === "Cold") { ctx.fillStyle = color; ctx.fill(); }
   else { ctx.strokeStyle = color; ctx.stroke(); }
-  if (crashed) {
-    ctx.strokeStyle = "#fff";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(x - 7, y - 7); ctx.lineTo(x + 7, y + 7);
-    ctx.moveTo(x + 7, y - 7); ctx.lineTo(x - 7, y + 7);
-    ctx.stroke();
-  }
+}
+
+function drawCross(x, y, color) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x - 7, y - 7); ctx.lineTo(x + 7, y + 7);
+  ctx.moveTo(x + 7, y - 7); ctx.lineTo(x - 7, y + 7);
+  ctx.stroke();
+}
+
+function drawCar(car, t) { drawCarAt(car, ...pointAt(t, laneOf(car))); }
+
+// Where a car crashed: a grey X on its lane, the car itself is in the infield.
+function drawCrash(car, t) { drawCross(...pointAt(t, laneOf(car)), "#8a8f99"); }
+
+// Off the track, in the infield below the middle (the lights and the red flag banner
+// use the middle): the cars that finished, in order and with their position, and
+// those that retired, each with an X. A row is drawn only once it has a car.
+function drawInfield(finished, retired) {
+  const rows = [["Llegaron", finished], ["Abandonaron", retired]];
+  rows.forEach(([label, cars], r) => {
+    if (!cars.length) return;
+    const y = CY + 60 + r * 46, x0 = CX - 220;
+    ctx.fillStyle = "#15151e";
+    ctx.font = '13px "Titillium Web", system-ui';
+    ctx.fillText(label, x0, y + 4);
+    ctx.textAlign = "center";
+    cars.forEach((car, k) => {
+      const x = x0 + 110 + k * 28;
+      drawCarAt(car, x, y);
+      if (r === 0) { ctx.fillStyle = "#15151e"; ctx.fillText(k + 1, x, y + 22); }
+      else drawCross(x, y, "#15151e");
+    });
+    ctx.textAlign = "left";
+  });
 }
 
 function drawLights(lit) {
@@ -192,7 +257,7 @@ function drawBanner(text) {
   ctx.fillStyle = "#e10600";
   ctx.fillRect(CX - 170, CY - 30, 340, 60);
   ctx.fillStyle = "#fff";
-  ctx.font = "bold 28px system-ui";
+  ctx.font = '28px "Russo One", system-ui';
   ctx.textAlign = "center";
   ctx.fillText(text, CX, CY + 10);
   ctx.textAlign = "left";
@@ -202,6 +267,15 @@ function swatch(car) {
   const color = TEAM_COLORS[TEAMS.indexOf(car.team)];
   const style = car.driver === "Cold" ? `background:${color}` : `border:2px solid ${color}`;
   return `<span class="swatch" style="${style}"></span>${car.team} ${car.driver}`;
+}
+
+// Times like F1's tower: the leader's in full, everyone else's as a gap to it.
+function gap(time, leaderTime, unit, digits = 3) {
+  if (time === leaderTime) return (time / unit).toFixed(digits);
+  // Negative is possible in the race: race time is each car's own clock, and a car can
+  // be behind on track with less time on it.
+  const d = (time - leaderTime) / unit;
+  return `${d < 0 ? "-" : "+"}${Math.abs(d).toFixed(digits)}`;
 }
 
 function table(head, rows) {
@@ -259,32 +333,36 @@ function frameQualifying(now, gen) {
 
   const n = replay.track.sections.length;
   drawCircuit(replay.track, `${replay.track.name}: clasificación`);
-  const rows = [];
+  const rows = [], finished = [], retired = [];
   replay.cars.forEach((car, pos) => {
     const p = qualifyingPosition(car, replay.clock);
-    const crashed = !car.finished && p.done;
-    const at = crashed ? p.at - 0.5 : Math.min(p.at, n);
-    drawCar(car, at / n, crashed);
+    if (!p.done) drawCar(car, p.at / n);
+    else if (car.finished) finished.push(car);  // in order: cars[] is the final order
+    else { drawCrash(car, (p.at - 0.5) / n); retired.push(car); }
     const pits = car.sections.filter((s) => s.pitStop).length;
     const penalties = car.sections.filter((s) => s.outcome === "Penalty").length;
-    let time = "";
-    if (p.done) time = car.finished ? (car.total / 1e6).toFixed(3) : "DNF";
+    let time = "";  // shown once the lap is over; the order is the final one, so cars[0] is P1
+    if (p.done) time = car.finished ? gap(car.total, replay.cars[0].total, 1e6) : "DNF";
     rows.push(`<tr class="${p.done ? "" : "out"}"><td class="num">${car.finished ? pos + 1 : "-"}</td>
       <td>${swatch(car)}</td><td class="num">${time}</td><td class="num">${pits}</td>
       <td class="num">${penalties}</td></tr>`);
   });
+  drawInfield(finished, retired);
   table(["", "auto (orden final)", "tiempo (ms)", "boxes", "pen."], rows);
   requestAnimationFrame((next) => frameQualifying(next, gen));
 }
 
 // --- live race -------------------------------------------------------------------------
 
-const live = { track: null, timer: null };
+// history: per car, [sections completed, race time] at each poll, to know the leader's
+// time at any car's distance (between two polls, interpolated).
+const live = { track: null, timer: null, history: new Map() };
 
 async function startLive() {
   controlsEl.innerHTML = `<button id="flag" class="flag">Bandera roja (R)</button>`;
   document.getElementById("flag").onclick = redFlag;
   live.track = null;
+  live.history.clear();
   messageEl.textContent = "Esperando a build/race...";
   live.timer = setInterval(pollLive, 100);
 }
@@ -292,6 +370,18 @@ async function startLive() {
 async function redFlag() {
   await fetch("/red-flag", { method: "POST" });
   messageEl.textContent = "Bandera roja pedida.";
+}
+
+// The leader's race time when it had completed k sections (k <= its own), interpolated
+// between the polls that saw it. Before the first poll that saw it, from 0.
+function leaderTimeAt(leader, k) {
+  const samples = live.history.get(carIndex(leader)) ?? [];
+  let [k0, t0] = [0, 0];
+  for (const [k1, t1] of samples) {
+    if (k1 >= k) return k1 === k0 ? t1 : t0 + ((t1 - t0) * (k - k0)) / (k1 - k0);
+    [k0, t0] = [k1, t1];
+  }
+  return leader.total;
 }
 
 async function pollLive() {
@@ -304,7 +394,7 @@ async function pollLive() {
     if (err.missing) {  // build/race hasn't run: before clase 4, it can't
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = "#8a8f99";
-      ctx.font = "bold 28px system-ui";
+      ctx.font = '28px "Russo One", system-ui';
       ctx.textAlign = "center";
       ctx.fillText("La carrera en vivo llega en la clase 4", CX, CY);
       ctx.textAlign = "left";
@@ -326,25 +416,42 @@ async function pollLive() {
     rank(a) - rank(b) || (rank(a) === 0 ? a.position - b.position : b.completed - a.completed || a.total - b.total));
 
   for (const car of state.cars) {
-    const t = car.state === "Finished" ? 0 : (car.completed % n) / n;
-    drawCar(car, t, car.state === "Retired");
+    const samples = live.history.get(carIndex(car)) ?? [];
+    const last = samples[samples.length - 1];
+    if (last && car.completed < last[0]) live.history.clear();  // a new race started
+    if (!last || car.completed > last[0]) {
+      if (!live.history.has(carIndex(car))) live.history.set(carIndex(car), []);
+      live.history.get(carIndex(car)).push([car.completed, car.total]);
+    }
   }
+  for (const car of state.cars) {
+    const t = (car.completed % n) / n;
+    if (car.state === "Retired") drawCrash(car, t);
+    else if (car.state !== "Finished") drawCar(car, t);
+  }
+  // order has the finishers by position, then the running cars, then the retired.
+  drawInfield(order.filter((c) => c.state === "Finished"), order.filter((c) => c.state === "Retired"));
   if (seconds < 0) drawLights(Math.min(5, Math.max(1, 6 + Math.floor(seconds / LIGHT_INTERVAL_S))));
   if (state.cars.some((c) => c.state === "Stopped")) drawBanner("BANDERA ROJA");  // any car stopped
 
+  const leader = order[0];
   const rows = order.map((car, i) => {
     const lap = Math.min(Math.floor(car.completed / n) + (car.state === "Running" ? 1 : 0), laps);
     const cls = car.state === "Retired" ? "out" : "";
+    const behind = Math.floor((leader.completed - car.completed) / n);
+    const time = car.state === "Retired" ? "DNF" :
+      behind > 0 ? `+${behind} ${behind === 1 ? "vuelta" : "vueltas"}` :
+      gap(car.total, car === leader ? car.total : leaderTimeAt(leader, car.completed), 1e9);
     return `<tr class="${cls}"><td class="num">${car.state === "Retired" ? "-" : i + 1}</td>
-      <td>${swatch(car)}</td><td class="num">${lap}/${laps}</td><td>${STATE_LABELS[car.state]}</td>
+      <td>${swatch(car)}</td><td class="num">${lap}/${laps}</td><td class="num">${time}</td>
       <td class="num">${car.position || ""}</td></tr>`;
   });
-  table(["", "auto", "vuelta", "estado", "llegó"], rows);
+  table(["", "auto", "vuelta", "tiempo (s)", "llegó"], rows);
   const running = state.cars.some((c) => c.state === "Running");
   const stopped = state.cars.some((c) => c.state === "Stopped");
   messageEl.textContent = seconds < 0 ? "Semáforo..." :
     running ? `${seconds.toFixed(1)} s desde la largada` :
-    stopped ? "Detenida por bandera roja: relancenla con build/race --resume results/red-flag.bin" :
+    stopped ? "Detenida por bandera roja: relancenla con make resume" :
     "Carrera terminada (así quedó la última carrera).";
 }
 

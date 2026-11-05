@@ -7,14 +7,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Formula T</title>
 <style>
-  :root { --bg: #15171c; --panel: #1f2229; --fg: #e8e8e8; --dim: #8a8f99; --red: #e10600; }
+  /* Open fonts close to F1's own (proprietary) ones, in fonts/ (SIL OFL): Russo One for
+     headings, Titillium Web for text. */
+  @font-face { font-family: "Russo One"; src: url(fonts/RussoOne-Regular.woff2) format("woff2"); font-display: swap; }
+  @font-face { font-family: "Titillium Web"; src: url(fonts/TitilliumWeb-Regular.woff2) format("woff2"); font-weight: 400; font-display: swap; }
+  @font-face { font-family: "Titillium Web"; src: url(fonts/TitilliumWeb-Bold.woff2) format("woff2"); font-weight: 700; font-display: swap; }
+  :root { --bg: #ffffff; --panel: #f4f4f4; --fg: #15151e; --dim: #67676d; --red: #e10600; --header: #15151e; --display: "Russo One", system-ui, sans-serif; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, sans-serif; }
-  header { display: flex; gap: 8px; align-items: center; padding: 10px 16px; background: var(--panel); }
-  header h1 { font-size: 18px; margin: 0 16px 0 0; }
-  button, select { background: #2c3039; color: var(--fg); border: 1px solid #444; border-radius: 4px; padding: 5px 10px; font: inherit; cursor: pointer; }
-  button.active { border-color: var(--fg); }
-  button.flag { background: var(--red); border-color: var(--red); font-weight: bold; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 "Titillium Web", system-ui, sans-serif; }
+  header { display: flex; gap: 32px; align-items: stretch; height: 56px; padding: 0 16px; background: var(--header); color: #fff; }
+  header { font-family: var(--display); }
+  header h1 { font-size: 20px; font-weight: normal; margin: 0; align-self: center; }
+  /* Like formula1.com's buttons: pills, outlined; black when active, red for the flag. */
+  button, select { background: none; color: var(--fg); border: 2px solid var(--fg); border-radius: 1000px; padding: 6px 16px; font: inherit; font-weight: bold; cursor: pointer; }
+  button.active { background: var(--fg); color: #fff; }
+  /* Like formula1.com's nav: plain text links, white underline on hover, red on the current one. */
+  header button { background: none; color: #fff; font-weight: normal; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 4px 8px 0; }
+  header button:hover { border-bottom-color: #fff; }
+  header button.active { background: none; border-bottom-color: var(--red); }
+  button.flag { background: var(--red); border-color: var(--red); color: #fff; font-weight: bold; }
   main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; padding: 16px; }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
   canvas { width: 100%; background: var(--panel); border-radius: 6px; }
@@ -22,7 +33,7 @@
   #message { color: var(--dim); margin-top: 8px; min-height: 1.4em; }
   table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 6px; }
   th, td { padding: 4px 8px; text-align: left; white-space: nowrap; }
-  th { color: var(--dim); font-weight: normal; border-bottom: 1px solid #333; }
+  th { color: var(--dim); font-weight: normal; border-bottom: 1px solid #ddd; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
   .out { color: var(--dim); }

@@ -558,7 +558,7 @@ struct GridSlot {
 
 Prueben `make race ARGS="--red-flag 5"`: 5 segundos después del apagado, el programa levanta la bandera,
 espera a que paren todos, guarda `results/red-flag.bin` y muestra la grilla de
-relanzamiento. Después, `make race ARGS="--resume results/red-flag.bin"` relanza la carrera
+relanzamiento. Después, `make resume` relanza la carrera
 desde ahí. Con `make gui`, el botón de bandera roja ahora anda. Y vuelvan a la prueba de la
 clase 4: `make race ARGS=tracks/stress.track` ya no pierde tramos, y `make tsan` termina
 sin reportes.
@@ -649,6 +649,7 @@ make test-clase1      # compila y corre los tests de la clase 1 (y así hasta te
 make test-given       # los tests del código dado: pasan desde el primer día
 make qualifying       # la clasificación
 make race             # la carrera (con opciones: make race ARGS="--red-flag 5")
+make resume           # la carrera de nuevo después de una bandera roja
 make tsan             # la carrera en el circuito de stress, con ThreadSanitizer
 make gui              # la interfaz, en http://localhost:8000
 make clean            # borra build/ y build-tsan/

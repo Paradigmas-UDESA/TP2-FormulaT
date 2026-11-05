@@ -15,7 +15,7 @@
 // Después de una bandera roja solo importa el orden: la carrera se relanza
 // desde la grilla, cada auto en una vuelta nueva, con las vueltas que tenía.
 // El orden se guarda en binario (los templates de la clase 2), y otra
-// ejecución retoma desde el archivo (build/race --resume results/red-flag.bin).
+// ejecución retoma desde el archivo (make resume).
 //
 // Preguntas para el diseño:
 // - El orden se arma cuando ya terminaron todos los threads (después del

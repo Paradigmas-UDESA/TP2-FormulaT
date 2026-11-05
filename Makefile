@@ -7,11 +7,12 @@
 #   make test-given       the tests of the given code
 #   make qualifying       the qualifying
 #   make race             the race; options with ARGS, e.g. make race ARGS="--red-flag 5"
+#   make resume           the race again after a red flag, from results/red-flag.bin
 #   make tsan             the race on the stress track, built with ThreadSanitizer
 #   make gui              the GUI, at http://localhost:8000
 #   make clean            delete build/
 
-.PHONY: all test-given qualifying race tsan gui clean
+.PHONY: all test-given qualifying race resume tsan gui clean
 
 all:
 	@test -f build/CMakeCache.txt || cmake --preset default
@@ -37,6 +38,10 @@ qualifying: all
 
 race: all
 	build/race $(ARGS)
+
+# The track goes in ARGS, if it is not the default one: the same as the stopped race.
+resume: all
+	build/race --resume results/red-flag.bin $(ARGS)
 
 # ThreadSanitizer: reports every data race it sees (exit 66). Its own build
 # directory (build-tsan/), so it never mixes with the normal build.

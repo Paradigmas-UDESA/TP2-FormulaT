@@ -9,7 +9,7 @@
 //   build/race --red-flag 5               (stops the race 5 s after lights out and
 //                                          saves the order to results/red-flag.bin)
 //   build/race --resume results/red-flag.bin   (restarts from that order; use the
-//                                               same track)
+//                                               same track; make resume runs this)
 //
 // For the GUI (gui/serve.py), every 100 ms: results/live.bin (the tower's
 // snapshot, binary), and results/track.txt once (the circuit). A file
@@ -187,6 +187,9 @@ int main(int argc, char** argv)
                 else
                     std::printf("%-4zu %-24s lap %zu\n", i + 1, name.c_str(), order[i].laps);
             }
+            // The restart needs the same track: say it, if it is not the default one.
+            const std::string args = path == "tracks/formula-t.track" ? "" : " ARGS=" + path;
+            std::printf("\nrestart it with: make resume%s\n", args.c_str());
             return 0;
         }
 
