@@ -14,6 +14,8 @@
 //
 // Después de una bandera roja solo importa el orden: la carrera se relanza
 // desde la grilla, cada auto en una vuelta nueva, con las vueltas que tenía.
+// Los que abandonaron también se guardan, al final: no se relanzan, pero
+// siguen en la clasificación (DNF).
 // El orden se guarda en binario (los templates de la clase 2), y otra
 // ejecución retoma desde el archivo (make resume).
 //
@@ -29,15 +31,18 @@
 
 namespace formulat {
 
-// Un lugar en la grilla de relanzamiento.
+// Un lugar en la grilla de relanzamiento. retired es un int y no un bool por
+// lo mismo que SectionResult::pitStop: cuatro campos de 4 bytes, sin relleno.
 struct GridSlot {
     Team team;
     Driver driver;
-    std::size_t laps;
+    unsigned laps;
+    int retired;  // 1: abandonó antes de la bandera (no se relanza); 0: no
 };
+static_assert(sizeof(GridSlot) == 16, "GridSlot no debe tener relleno");
 
-// Los autos que no abandonaron: primero más vueltas, después menos tiempo de
-// carrera.
+// Todos los autos: primero los que no abandonaron, después los que sí; en
+// cada grupo, primero más vueltas, después menos tiempo de carrera.
 std::vector<GridSlot> redFlagOrder(const std::vector<Car>& grid, const Track& track);
 
 // "FTRF", una versión de 32 bits (1), los lugares. Cargar tira
@@ -47,8 +52,8 @@ void saveRedFlag(const std::string& path, const std::vector<GridSlot>& order);
 std::vector<GridSlot> loadRedFlag(const std::string& path);
 
 // La grilla de relanzamiento: los autos en ese orden, cada uno retomando
-// después de sus vueltas. Un auto que terminó su última vuelta con la bandera
-// ya está fuera de la carrera: no se relanza.
+// después de sus vueltas. Un auto que abandonó, o que terminó su última vuelta
+// con la bandera, ya está fuera de la carrera: no se relanza.
 std::vector<Car> makeGrid(const Track& track, const std::vector<GridSlot>& order);
 
 }  // namespace formulat

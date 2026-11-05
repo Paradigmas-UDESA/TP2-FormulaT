@@ -65,13 +65,13 @@ function parseTrack(text) {
 class Reader {
   constructor(buffer) { this.view = new DataView(buffer); this.at = 0; }
   need(bytes) { if (this.at + bytes > this.view.byteLength) throw new Error("el archivo terminó antes de tiempo"); }
-  magic(expected) {
+  magic(expected, wanted = 1) {
     this.need(8);
     const got = String.fromCharCode(...new Uint8Array(this.view.buffer, 0, 4));
     this.at = 4;
     if (got !== expected) throw new Error(`no es un archivo ${expected}`);
     const version = this.u32();
-    if (version !== 1) throw new Error(`versión ${version} no soportada`);
+    if (version !== wanted) throw new Error(`versión ${version} no soportada`);
   }
   u8() { this.need(1); return this.view.getUint8(this.at++); }
   i32() { this.need(4); const v = this.view.getInt32(this.at, true); this.at += 4; return v; }
@@ -93,15 +93,18 @@ function parseQualifying(buffer) {
   }));
 }
 
+// The cars racing, then (after a restart) those out since before it: finished or
+// retired, with no race time (out: true).
 function parseLive(buffer) {
   const r = new Reader(buffer);
-  r.magic("FTLV");
+  r.magic("FTLV", 2);
   const elapsed = r.i64();
-  const cars = r.vector(() => ({
+  const car = (out) => () => ({
     team: TEAMS[r.i32()], driver: DRIVERS[r.i32()], completed: r.u64(), total: r.i64(),
-    state: STATES[r.i32()], position: r.u32(),
-  }));
-  return { elapsed, cars };
+    state: STATES[r.i32()], position: r.u32(), out,
+  });
+  const cars = r.vector(car(false));
+  return { elapsed, cars, out: r.vector(car(true)) };
 }
 
 // --- drawing ---------------------------------------------------------------------------
@@ -368,6 +371,10 @@ async function startLive() {
 }
 
 async function redFlag() {
+  if (document.getElementById("flag").disabled) {  // the R key, too
+    messageEl.textContent = "Ya terminó un auto: la carrera tiene ganador, no hay bandera roja.";
+    return;
+  }
   await fetch("/red-flag", { method: "POST" });
   messageEl.textContent = "Bandera roja pedida.";
 }
@@ -410,9 +417,11 @@ async function pollLive() {
   drawCircuit(live.track, `${live.track.name}: carrera`);
   const seconds = state.elapsed / 1e9;
 
-  // Running order: finishers by position, then by sections done, retired last.
+  // Running order: finishers by position, then by sections done, retired last. The
+  // cars out since before a restart too (they aren't on the track).
+  const all = [...state.cars, ...state.out];
   const rank = (c) => (c.state === "Finished" ? 0 : c.state === "Retired" ? 2 : 1);
-  const order = [...state.cars].sort((a, b) =>
+  const order = all.sort((a, b) =>
     rank(a) - rank(b) || (rank(a) === 0 ? a.position - b.position : b.completed - a.completed || a.total - b.total));
 
   for (const car of state.cars) {
@@ -434,12 +443,14 @@ async function pollLive() {
   if (seconds < 0) drawLights(Math.min(5, Math.max(1, 6 + Math.floor(seconds / LIGHT_INTERVAL_S))));
   if (state.cars.some((c) => c.state === "Stopped")) drawBanner("BANDERA ROJA");  // any car stopped
 
-  const leader = order[0];
+  // Laps behind the first car; time gaps to the first one racing since the restart
+  // (race times start again at 0 there: the cars out have none).
+  const leader = order.find((c) => !c.out) ?? order[0];
   const rows = order.map((car, i) => {
     const lap = Math.min(Math.floor(car.completed / n) + (car.state === "Running" ? 1 : 0), laps);
     const cls = car.state === "Retired" ? "out" : "";
-    const behind = Math.floor((leader.completed - car.completed) / n);
-    const time = car.state === "Retired" ? "DNF" :
+    const behind = Math.floor((order[0].completed - car.completed) / n);
+    const time = car.state === "Retired" ? "DNF" : car.out ? "-" :
       behind > 0 ? `+${behind} ${behind === 1 ? "vuelta" : "vueltas"}` :
       gap(car.total, car === leader ? car.total : leaderTimeAt(leader, car.completed), 1e9);
     return `<tr class="${cls}"><td class="num">${car.state === "Retired" ? "-" : i + 1}</td>
@@ -447,6 +458,9 @@ async function pollLive() {
       <td class="num">${car.position || ""}</td></tr>`;
   });
   table(["", "auto", "vuelta", "tiempo (s)", "llegó"], rows);
+  const flag = document.getElementById("flag");
+  flag.disabled = all.some((c) => c.state === "Finished");
+  flag.title = flag.disabled ? "Ya terminó un auto: la carrera tiene ganador" : "";
   const running = state.cars.some((c) => c.state === "Running");
   const stopped = state.cars.some((c) => c.state === "Stopped");
   messageEl.textContent = seconds < 0 ? "Semáforo..." :

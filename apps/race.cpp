@@ -12,7 +12,8 @@
 //                                               same track; make resume runs this)
 //
 // For the GUI (gui/serve.py), every 100 ms: results/live.bin (the tower's
-// snapshot, binary), and results/track.txt once (the circuit). A file
+// snapshot, and after a restart the cars out of it, binary), and
+// results/track.txt once (the circuit). A file
 // results/red-flag.request (the GUI's red flag button) waves the red flag.
 
 #include <algorithm>
@@ -64,16 +65,20 @@ const char* const kLive = "results/live.bin";
 const char* const kLiveTmp = "results/live.bin.tmp";
 const char* const kRequest = "results/red-flag.request";
 
-// "FTLV", a 32-bit version (1), the time since lights out, the cars. Written
-// aside and renamed over the old file (atomic): the GUI never reads half a file.
-void writeLive(std::chrono::nanoseconds elapsed, const std::vector<CarStatus>& cars)
+// "FTLV", a 32-bit version (2), the time since lights out, the cars racing,
+// then the cars that are out since before a restart (finished or retired; no
+// race time). Written aside and renamed over the old file (atomic): the GUI
+// never reads half a file.
+void writeLive(std::chrono::nanoseconds elapsed, const std::vector<CarStatus>& cars,
+               const std::vector<CarStatus>& out)
 {
     {
         std::ofstream os(kLiveTmp, std::ios::binary);
         os.write("FTLV", 4);
-        writeBinary(os, std::uint32_t{1});
+        writeBinary(os, std::uint32_t{2});
         writeBinary(os, elapsed);
         writeBinary(os, cars);
+        writeBinary(os, out);
     }
     std::filesystem::rename(kLiveTmp, kLive);
 }
@@ -107,16 +112,38 @@ int main(int argc, char** argv)
 
         // Complete BEFORE the threads start.
         // After a red flag, the cars that finished under it are out of the race:
-        // they lead the classification, in the saved order.
+        // they lead the classification, in the saved order. Those that retired
+        // before it close it, as DNF.
         const std::vector<GridSlot> saved = resume.empty() ? std::vector<GridSlot>{} : loadRedFlag(resume);
-        std::vector<GridSlot> finishedBefore;
-        for (const GridSlot& s : saved)
-            if (s.laps == track.config.laps)
+        std::vector<GridSlot> finishedBefore, retiredBefore;
+        for (const GridSlot& s : saved) {
+            if (s.retired)
+                retiredBefore.push_back(s);
+            else if (s.laps == track.config.laps)
                 finishedBefore.push_back(s);
+        }
         std::vector<Car> grid = resume.empty() ? makeGrid(track, kGridGap) : makeGrid(track, saved);
         if (!resume.empty())
             std::cout << "restart from " << resume << " (race times start again at 0)\n";
         TimingTower tower(grid);
+
+        // For the GUI: the cars out since before the restart, and the tower's
+        // positions after the ones that finished before it.
+        std::vector<CarStatus> out;
+        for (const GridSlot& s : finishedBefore)
+            out.push_back({s.team, s.driver, s.laps * track.sections.size(), {},
+                           CarStatus::State::Finished, static_cast<unsigned>(out.size() + 1)});
+        for (const GridSlot& s : retiredBefore)
+            out.push_back({s.team, s.driver, s.laps * track.sections.size(), {},
+                           CarStatus::State::Retired, 0});
+        auto live = [&](std::chrono::nanoseconds elapsed) {
+            auto cars = tower.snapshot();
+            for (CarStatus& c : cars)
+                if (c.position)
+                    c.position += static_cast<unsigned>(finishedBefore.size());
+            writeLive(elapsed, cars, out);
+            return cars;
+        };
         const auto lightInterval = 1s;
         Race race(grid, track, tower, &std::cout, lightInterval);
         race.start();
@@ -125,17 +152,19 @@ int main(int argc, char** argv)
         bool redFlagWaved = false;
         auto wave = [&](const char* why) {
             redFlagWaved = true;
-            std::cout << (race.redFlag() ? std::string("-- RED FLAG (") + why +
-                                               "): every car stops at the end of its lap\n"
-                                         : "-- red flag refused: a car already finished\n");
+            // A car that finished before the restart already won the race: this
+            // Race doesn't know it, so it's refused here.
+            const bool waved = finishedBefore.empty() && race.redFlag();
+            std::cout << (waved ? std::string("-- RED FLAG (") + why +
+                                      "): every car stops at the end of its lap\n"
+                                : "-- red flag refused: a car already finished\n");
         };
         int lightsShown = 0;
         for (unsigned tick = 0; !tower.allDone(); ++tick) {
             // Copy, then work on the copy (the console, the file). From clase 5
             // the copy is taken under the tower's lock.
-            const auto cars = tower.snapshot();
             const auto elapsed = race.elapsed();
-            writeLive(elapsed, cars);
+            const auto cars = live(elapsed);
 
             if (elapsed < 0ns) {
                 // One more light every interval, all out at 0.
@@ -171,21 +200,26 @@ int main(int argc, char** argv)
             std::this_thread::sleep_for(100ms);
         }
         race.join();
-        writeLive(race.elapsed(), tower.snapshot());
+        live(race.elapsed());
 
         const auto status = tower.snapshot();
         if (std::any_of(status.begin(), status.end(), [](const CarStatus& s) {
                 return s.state == CarStatus::State::Stopped;
             })) {
-            const auto order = redFlagOrder(grid, track);
+            // After a restart, those that retired before it stay in the file, last.
+            // (None finished before it: the flag would have been refused.)
+            auto order = redFlagOrder(grid, track);
+            order.insert(order.end(), retiredBefore.begin(), retiredBefore.end());
             saveRedFlag("results/red-flag.bin", order);
             std::printf("\nrestart grid (saved results/red-flag.bin):\n");
             for (std::size_t i = 0; i < order.size(); ++i) {
                 const std::string name = nameOf(order[i].team) + " " + nameOf(order[i].driver);
-                if (order[i].laps == track.config.laps)
+                if (order[i].retired)
+                    std::printf("%-4s %-24s retired (lap %u)\n", "-", name.c_str(), order[i].laps);
+                else if (order[i].laps == track.config.laps)
                     std::printf("%-4zu %-24s finished\n", i + 1, name.c_str());
                 else
-                    std::printf("%-4zu %-24s lap %zu\n", i + 1, name.c_str(), order[i].laps);
+                    std::printf("%-4zu %-24s lap %u\n", i + 1, name.c_str(), order[i].laps);
             }
             // The restart needs the same track: say it, if it is not the default one.
             const std::string args = path == "tracks/formula-t.track" ? "" : " ARGS=" + path;
@@ -231,6 +265,10 @@ int main(int argc, char** argv)
             const std::string p = r.finished ? std::to_string(++pos) : "DNF";
             std::printf("%-4s %-24s %12.3f %8s\n", p.c_str(), name.c_str(),
                         std::chrono::duration<double>(r.total).count(), crossed(r).c_str());
+        }
+        for (const GridSlot& s : retiredBefore) {
+            const std::string name = nameOf(s.team) + " " + nameOf(s.driver);
+            std::printf("%-4s %-24s %12s %8s\n", "DNF", name.c_str(), "-", "-");
         }
 
         // Every section a car ran was reported once, including one that threw

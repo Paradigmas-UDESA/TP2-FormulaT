@@ -200,7 +200,7 @@ TEST(RedFlagTest, RefusedOnceACarFinished)
 }
 
 // Cars stopped after different numbers of laps, run here one by one.
-TEST(RedFlagTest, OrderIsLapsThenTimeWithoutRetired)
+TEST(RedFlagTest, OrderIsLapsThenTimeRetiredLast)
 {
     const Track t = shortRace(3);
     const std::size_t perLap = t.sections.size();
@@ -215,21 +215,25 @@ TEST(RedFlagTest, OrderIsLapsThenTimeWithoutRetired)
     ASSERT_GT(retired, 0u);  // the cold Newton and Secant crash in the first lap
 
     const auto order = redFlagOrder(grid, t);
-    ASSERT_EQ(order.size(), grid.size() - retired);
+    ASSERT_EQ(order.size(), grid.size());  // every car, the retired ones too
     auto car = [&](const GridSlot& s) -> const Car& {
         return *std::find_if(grid.begin(), grid.end(), [&](const Car& c) {
             return c.team() == s.team && c.driver() == s.driver;
         });
     };
     for (std::size_t i = 0; i < order.size(); ++i) {
+        SCOPED_TRACE(i);
         const Car& c = car(order[i]);
-        EXPECT_FALSE(c.adr().has_value());
+        EXPECT_EQ(order[i].retired, c.adr() ? 1 : 0);
         EXPECT_EQ(order[i].laps, c.completed() / perLap);
         if (i > 0) {
             const Car& prev = car(order[i - 1]);
-            EXPECT_GE(order[i - 1].laps, order[i].laps);
-            if (order[i - 1].laps == order[i].laps) {
-                EXPECT_LE(prev.result().total, c.result().total);
+            EXPECT_LE(order[i - 1].retired, order[i].retired);  // the retired ones, last
+            if (order[i - 1].retired == order[i].retired) {
+                EXPECT_GE(order[i - 1].laps, order[i].laps);
+                if (order[i - 1].laps == order[i].laps) {
+                    EXPECT_LE(prev.result().total, c.result().total);
+                }
             }
         }
     }
@@ -237,9 +241,10 @@ TEST(RedFlagTest, OrderIsLapsThenTimeWithoutRetired)
 
 TEST(RedFlagFileTest, RoundTrip)
 {
-    const std::vector<GridSlot> order{{Team::Secant, Driver::Warm, 217},
-                                      {Team::Halley, Driver::Cold, 197},
-                                      {Team::Bisection, Driver::Warm, 0}};
+    const std::vector<GridSlot> order{{Team::Secant, Driver::Warm, 217, 0},
+                                      {Team::Halley, Driver::Cold, 197, 0},
+                                      {Team::Bisection, Driver::Warm, 0, 0},
+                                      {Team::Newton, Driver::Cold, 0, 1}};
     const std::string path = tempPath("red-flag.bin");
     saveRedFlag(path, order);
     const auto back = loadRedFlag(path);
@@ -248,6 +253,7 @@ TEST(RedFlagFileTest, RoundTrip)
         EXPECT_EQ(back[i].team, order[i].team);
         EXPECT_EQ(back[i].driver, order[i].driver);
         EXPECT_EQ(back[i].laps, order[i].laps);
+        EXPECT_EQ(back[i].retired, order[i].retired);
     }
 }
 
@@ -275,9 +281,12 @@ TEST(RedFlagFileTest, BrokenFilesThrow)
 TEST(ResumeTest, GridInTheSavedOrderAfterItsLaps)
 {
     const Track t = shortRace(10);
-    // Newton Warm finished its last lap under the flag: it doesn't restart.
-    const std::vector<GridSlot> order{
-        {Team::Newton, Driver::Warm, 10}, {Team::Halley, Driver::Warm, 7}, {Team::Toms748, Driver::Cold, 3}};
+    // Newton Warm finished its last lap under the flag, and Secant Cold had
+    // retired: neither restarts.
+    const std::vector<GridSlot> order{{Team::Newton, Driver::Warm, 10, 0},
+                                      {Team::Halley, Driver::Warm, 7, 0},
+                                      {Team::Toms748, Driver::Cold, 3, 0},
+                                      {Team::Secant, Driver::Cold, 0, 1}};
     const auto grid = makeGrid(t, order);
     ASSERT_EQ(grid.size(), 2u);
     EXPECT_EQ(grid[0].team(), Team::Halley);

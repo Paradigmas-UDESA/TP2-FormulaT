@@ -26,6 +26,7 @@
   header button:hover { border-bottom-color: #fff; }
   header button.active { background: none; border-bottom-color: var(--red); }
   button.flag { background: var(--red); border-color: var(--red); color: #fff; font-weight: bold; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
   main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; padding: 16px; }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
   canvas { width: 100%; background: var(--panel); border-radius: 6px; }

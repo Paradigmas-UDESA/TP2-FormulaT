@@ -543,18 +543,20 @@ El **relanzamiento**, después del `join()`, cuando ya no corre ningún thread:
 struct GridSlot {
     Team team;
     Driver driver;
-    std::size_t laps;
+    unsigned laps;
+    int retired;  // 1: abandonó antes de la bandera; 0: no
 };
 ```
 
-- `redFlagOrder(grid, track)`: los autos que no abandonaron, primero los de más vueltas y,
-  con las mismas vueltas, los de menos tiempo de carrera.
+- `redFlagOrder(grid, track)`: todos los autos, primero los que no abandonaron y después
+  los que sí (no se relanzan, pero siguen en la clasificación como DNF). En cada grupo,
+  primero los de más vueltas y, con las mismas vueltas, los de menos tiempo de carrera.
 - `saveRedFlag(path, order)` y `loadRedFlag(path)`: `"FTRF"`, la versión (un `uint32_t`, 1)
   y los lugares, con los templates de la clase 2. Cargar tira `std::runtime_error` si el
   archivo no se puede abrir, si es de otro tipo o de otra versión.
 - `makeGrid(track, order)`: la grilla de relanzamiento, en ese orden, cada auto retomando
-  después de sus vueltas, con el tiempo de nuevo en 0. Un auto que terminó su última vuelta
-  con la bandera ya está fuera de la carrera: no se relanza.
+  después de sus vueltas, con el tiempo de nuevo en 0. Un auto que abandonó, o que terminó
+  su última vuelta con la bandera, ya está fuera de la carrera: no se relanza.
 
 Prueben `make race ARGS="--red-flag 5"`: 5 segundos después del apagado, el programa levanta la bandera,
 espera a que paren todos, guarda `results/red-flag.bin` y muestra la grilla de
@@ -569,8 +571,10 @@ sin reportes.
 > tener la torre bloqueada.
 
 > **Tip (2):** `GridSlot` no necesita código propio para guardarse: el `writeBinary`
-> genérico de la clase 2 alcanza. Para leer los autos después del `join()` no hace falta
-> ningún lock.
+> genérico de la clase 2 alcanza (por eso `retired` es un `int`, como
+> `SectionResult::pitStop`). Para leer los autos después del `join()` no hace falta ningún
+> lock. `car.completed() / track.sections.size()` es un `std::size_t`: para guardarlo en
+> `laps`, `static_cast<unsigned>(...)`.
 
 > **Para pensar:** `finish()` suma uno a los que terminaron y le da esa posición al auto.
 > ¿Qué podría pasar si sumar y leer la posición quedaran en dos secciones críticas
